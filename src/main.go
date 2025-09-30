@@ -1,67 +1,84 @@
 package main
 
 import (
-    "net/http"
+	"log"
+	"net/http"
+	"strconv"
+	"sync"
 
-    "github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin"
 )
 
-// album represents data about a record album.
-type album struct {
-    ID     string  `json:"id"`
-    Title  string  `json:"title"`
-    Artist string  `json:"artist"`
-    Price  float64 `json:"price"`
+// --- Product Data Structures (Matching Assignment Requirements) ---
+
+// Product structure must match the required fields: Name, Price, Quantity.
+type Product struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name" binding:"required"` // Ensures 400 Bad Request if missing
+	Price    float64 `json:"price" binding:"required"`
+	Quantity int     `json:"quantity" binding:"required"`
 }
 
-// albums slice to seed record album data.
-var albums = []album{
-    {ID: "1", Title: "Blue Train", Artist: "John Coltrane", Price: 56.99},
-    {ID: "2", Title: "Jeru", Artist: "Gerry Mulligan", Price: 17.99},
-    {ID: "3", Title: "Sarah Vaughan and Clifford Brown", Artist: "Sarah Vaughan", Price: 39.99},
-}
+// In-memory storage and mutex for safe concurrent access
+var productStore = make(map[string]Product)
+var idCounter int = 1
+var mutex = &sync.RWMutex{}
+
+// --- Main Setup ---
 
 func main() {
-    router := gin.Default()
-    router.GET("/albums", getAlbums)
-    router.GET("/albums/:id", getAlbumByID)
-    router.POST("/albums", postAlbums)
+    // Note: Gin routes typically start with the collection name ("/products")
+	router := gin.Default()
+	router.POST("/products", postProduct)
+	router.GET("/products/:id", getProductByID)
 
-    router.Run(":8080")
+	log.Println("Starting server on :8080")
+	router.Run(":8080")
 }
 
-// getAlbums responds with the list of all albums as JSON.
-func getAlbums(c *gin.Context) {
-    c.IndentedJSON(http.StatusOK, albums)
+// --- Handler Functions ---
+
+// postProduct handles POST /products. Returns 201 Created or 400 Bad Request.
+func postProduct(c *gin.Context) {
+	var newProduct Product
+
+	// 1. Bind and Basic Validation (Gin handles missing Name/Price/Quantity fields -> 400)
+	if err := c.ShouldBindJSON(&newProduct); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input. Name, Price, and Quantity are required fields."})
+		return
+	}
+
+	// 2. Custom Validation (Matching assignment logic: price > 0, quantity >= 0)
+	if newProduct.Price <= 0 || newProduct.Quantity < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Price must be positive, and Quantity cannot be negative."})
+		return
+	}
+
+	// 3. Generate ID and Store (Critical Section)
+	mutex.Lock()
+	newProduct.ID = strconv.Itoa(idCounter)
+	idCounter++
+	productStore[newProduct.ID] = newProduct
+	mutex.Unlock()
+
+	// 201 Created response
+	c.JSON(http.StatusCreated, newProduct)
 }
 
-// postAlbums adds an album from JSON received in the request body.
-func postAlbums(c *gin.Context) {
-    var newAlbum album
+// getProductByID handles GET /products/{id}. Returns 200 OK or 404 Not Found.
+func getProductByID(c *gin.Context) {
+	id := c.Param("id")
 
-    // Call BindJSON to bind the received JSON to
-    // newAlbum.
-    if err := c.BindJSON(&newAlbum); err != nil {
-        return
-    }
+	mutex.RLock()
+	product, ok := productStore[id]
+	mutex.RUnlock()
 
-    // Add the new album to the slice.
-    albums = append(albums, newAlbum)
-    c.IndentedJSON(http.StatusCreated, newAlbum)
-}
+	if ok {
+		// 200 OK response
+		c.JSON(http.StatusOK, product)
+		return
+	}
 
-// getAlbumByID locates the album whose ID value matches the id
-// parameter sent by the client, then returns that album as a response.
-func getAlbumByID(c *gin.Context) {
-    id := c.Param("id")
-
-    // Loop through the list of albums, looking for
-    // an album whose ID value matches the parameter.
-    for _, a := range albums {
-        if a.ID == id {
-            c.IndentedJSON(http.StatusOK, a)
-            return
-        }
-    }
-    c.IndentedJSON(http.StatusNotFound, gin.H{"message": "album not found"})
+	// 404 Not Found response
+	c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 }
