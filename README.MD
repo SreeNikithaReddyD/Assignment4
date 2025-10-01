@@ -106,5 +106,15 @@ All API requests should be made to `http://<YOUR_PUBLIC_IP>:8080`.
 ## Part III: Clean Up
 
 To tear down all the infrastructure created by Terraform, run the following command from the `/terraform` directory:
-```bash
+
 terraform destroy -auto-approve
+
+### 5. Load Testing
+
+The `/testing` directory contains a Locust script for load testing the API.
+
+**Prerequisites**: Locust and Faker must be installed.
+
+pip install locust
+
+**RunTheTest**: locust -f testing/locustfile.py --host http://<YOUR_PUBLIC_IP>:8080
