@@ -27,10 +27,16 @@ var mutex = &sync.RWMutex{}
 // --- Main Setup ---
 
 func main() {
-    // Note: Gin routes typically start with the collection name ("/products")
 	router := gin.Default()
+
+	// API endpoints for product management
 	router.POST("/products", postProduct)
 	router.GET("/products/:id", getProductByID)
+
+	// --- NEW: Add a route to serve the OpenAPI specification ---
+	router.GET("/api.yaml", func(c *gin.Context) {
+		c.File("./api.yaml") // Serves the api.yaml file from the same directory
+	})
 
 	log.Println("Starting server on :8080")
 	router.Run(":8080")
@@ -42,19 +48,19 @@ func main() {
 func postProduct(c *gin.Context) {
 	var newProduct Product
 
-	// 1. Bind and Basic Validation (Gin handles missing Name/Price/Quantity fields -> 400)
+	// 1. Bind and Basic Validation
 	if err := c.ShouldBindJSON(&newProduct); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input. Name, Price, and Quantity are required fields."})
 		return
 	}
 
-	// 2. Custom Validation (Matching assignment logic: price > 0, quantity >= 0)
+	// 2. Custom Validation
 	if newProduct.Price <= 0 || newProduct.Quantity < 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Price must be positive, and Quantity cannot be negative."})
 		return
 	}
 
-	// 3. Generate ID and Store (Critical Section)
+	// 3. Generate ID and Store
 	mutex.Lock()
 	newProduct.ID = strconv.Itoa(idCounter)
 	idCounter++
